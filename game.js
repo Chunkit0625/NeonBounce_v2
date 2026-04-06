@@ -1,342 +1,597 @@
 /**
- * Neon Bounce: Collector — TikTok Native (canvas only)
- * Developer: TANYA DAVID LLC
- * Updated for Compliance & Rendering Fixes
+ * Neon Bounce: Collector - TikTok Mini Game
+ * Developed by: TANYA DAVID LLC
+ * For global markets (Brazil, Philippines, Malaysia, Japan, Saudi Arabia, Thailand, Turkey, Indonesia)
+ * 
+ * Features: Rewarded Video Ad, Interstitial Ad, Screen Recording, Add to Home Screen, Privacy & Terms links
+ * Fixed all rejection reasons: rendering, legal links, shortcut guide, revenue (two ad types), recording.
  */
 
-(function () {
-  'use strict';
+// ==================== Initialization ====================
+let canvas, ctx;
 
-  /* ========== PC / Live Server: mock tt when absent ========== */
-  if (typeof tt === 'undefined') {
-    var _showListeners = [];
-    var _hideListeners = [];
-    window.tt = {
-      createCanvas: function () {
-        var c = document.createElement('canvas');
-        c.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;';
-        document.body.appendChild(c);
-        return c;
-      },
-      getSystemInfoSync: function () {
-        var pr = (typeof window.devicePixelRatio === 'number' && window.devicePixelRatio > 0) ? window.devicePixelRatio : 1;
-        var w = window.innerWidth || 375;
-        var h = window.innerHeight || 667;
-        return {
-          pixelRatio: pr,
-          windowWidth: w,
-          windowHeight: h,
-          screenWidth: w,
-          screenHeight: h
-        };
-      },
-      createRewardedVideoAd: function (opts) {
-        var adUnitId = opts && opts.adUnitId;
-        var closeCb = null;
-        var errCb = null;
-        return {
-          load: function () { return Promise.resolve(); },
-          show: function () {
-            console.log('[mock] rewarded show', adUnitId);
-            setTimeout(function () {
-              if (typeof closeCb === 'function') closeCb({ isEnded: true });
-            }, 400);
-            return Promise.resolve();
-          },
-          onClose: function (cb) { closeCb = cb; },
-          offClose: function () { closeCb = null; },
-          onError: function (cb) { errCb = cb; },
-          offError: function () { errCb = null; },
-          _mockClose: function (ended) {
-            if (typeof closeCb === 'function') closeCb({ isEnded: !!ended });
-          }
-        };
-      },
-      createInterstitialAd: function (opts) {
-        var adUnitId = opts && opts.adUnitId;
-        return {
-          load: function () { return Promise.resolve(); },
-          show: function () {
-            console.log('[mock] interstitial show', adUnitId);
-            return Promise.resolve();
-          },
-          onClose: function () {},
-          offClose: function () {},
-          onError: function () {},
-          offError: function () {}
-        };
-      },
-      addShortcut: function (opts) {
-        console.log('[mock] addShortcut');
-        if (opts && typeof opts.success === 'function') opts.success({});
-        if (opts && typeof opts.complete === 'function') opts.complete({});
-      },
-      getShortcutMissionReward: function (opts) {
-        console.log('[mock] getShortcutMissionReward');
-        if (opts && typeof opts.success === 'function') opts.success({ rewarded: true });
-        if (opts && typeof opts.complete === 'function') opts.complete({});
-      },
-      onShow: function (cb) { _showListeners.push(cb); },
-      onHide: function (cb) { _hideListeners.push(cb); },
-      showToast: function (opts) { console.log('[mock] showToast', opts.title); },
-      showModal: function (opts) { console.log('[mock] showModal', opts.title, opts.content); },
-      login: function (opts) {
-        setTimeout(function () {
-          if (opts && typeof opts.success === 'function') opts.success({ code: 'mock_code' });
-        }, 0);
-      }
-    };
-    window.addEventListener('focus', function () { _showListeners.forEach(function (fn) { fn({}); }); });
-    window.addEventListener('blur', function () { _hideListeners.forEach(function (fn) { fn({}); }); });
-  }
-
-  var DEV_NAME = 'TANYA DAVID LLC';
-  var GAME_TITLE = 'Neon Bounce: Collector';
-  var BG = '#0a0a12';
-  var REWARD_AD_ID = 'ad7624138143927715861';
-  var INTER_AD_ID = 'ad762401133264570389';
-
-  var sys = tt.getSystemInfoSync();
-  var dpr = Math.max(1, sys.pixelRatio || 1);
-  var LOGICAL_W = sys.windowWidth || 375;
-  var LOGICAL_H = sys.windowHeight || 667;
-
-  var canvas = tt.createCanvas();
-  var ctx = canvas.getContext('2d');
-  canvas.width = Math.floor(LOGICAL_W * dpr);
-  canvas.height = Math.floor(LOGICAL_H * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  var STATE = { MENU: 0, PLAYING: 1, REVIVE: 2, GAMEOVER: 3 };
-  var state = STATE.MENU;
-  var score = 0;
-  var shortcutBonus = 0;
-  var pausedByHost = false;
-  var reviveUsed = false;
-
-  /** 增加点击热区判定，解决原因 2/3 的交互反馈问题 */
-  var REVIVE_HIT_PAD = 24; 
-
-  var player = { x: LOGICAL_W * 0.5, y: LOGICAL_H * 0.82, r: 18 };
-  var entities = [];
-  var spawnTimer = 0;
-  var invuln = 0;
-
-  var reviveRewardedAd = null;
-  var interstitialAd = tt.createInterstitialAd({ adUnitId: INTER_AD_ID });
-
-  var ui = {
-    start: { x: 0, y: 0, w: 200, h: 52 },
-    revive: { x: 0, y: 0, w: 220, h: 48 },
-    skipRevive: { x: 0, y: 0, w: 200, h: 44 },
-    restart: { x: 0, y: 0, w: 200, h: 48 },
-    shortcut: { x: 0, y: 0, w: 240, h: 48 },
-    // 解决原因 1：新增法律合规按钮
-    privacy: { x: 0, y: 0, w: 120, h: 30 },
-    terms: { x: 0, y: 0, w: 120, h: 30 }
-  };
-
-  function layoutUI() {
-    var cx = LOGICAL_W * 0.5;
-    ui.start.x = cx - ui.start.w / 2;
-    ui.start.y = LOGICAL_H * 0.55;
-    ui.revive.x = cx - ui.revive.w / 2;
-    ui.revive.y = LOGICAL_H * 0.48;
-    ui.skipRevive.x = cx - ui.skipRevive.w / 2;
-    ui.skipRevive.y = LOGICAL_H * 0.58;
-    ui.restart.x = cx - ui.restart.w / 2;
-    ui.restart.y = LOGICAL_H * 0.52;
-    ui.shortcut.x = cx - ui.shortcut.w / 2;
-    ui.shortcut.y = LOGICAL_H * 0.62;
-    // 法律条文布局在底部
-    ui.privacy.x = 20;
-    ui.privacy.y = LOGICAL_H - 50;
-    ui.terms.x = LOGICAL_W - 140;
-    ui.terms.y = LOGICAL_H - 50;
-  }
-  layoutUI();
-
-  function neonGlow(ctx2, color, blur) {
-    ctx2.shadowColor = color;
-    ctx2.shadowBlur = blur;
-  }
-
-  function clearGlow(ctx2) { ctx2.shadowBlur = 0; }
-
-  function drawRoundedRect(x, y, w, h, r, fill, stroke, strokeWidth) {
-    r = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
-    if (stroke) {
-      ctx.strokeStyle = stroke;
-      ctx.lineWidth = strokeWidth != null ? strokeWidth : 2;
-      ctx.stroke();
-    }
-  }
-
-  function hitButton(px, py, bx, by, bw, bh) {
-    return px >= bx && px <= bx + bw && py >= by && py <= by + bh;
-  }
-
-  function handleTap(logicalX, logicalY) {
-    if (state === STATE.MENU) {
-      if (hitButton(logicalX, logicalY, ui.start.x, ui.start.y, ui.start.w, ui.start.h)) {
-        resetRun();
-        state = STATE.PLAYING;
-      }
-      // 原因 1 修复逻辑：点击显示隐私政策
-      if (hitButton(logicalX, logicalY, ui.privacy.x, ui.privacy.y, ui.privacy.w, ui.privacy.h)) {
-        tt.showModal({
-          title: 'Privacy Policy',
-          content: 'TANYA DAVID LLC does not collect personal data. Progress is stored locally.',
-          showCancel: false
-        });
-      }
-      if (hitButton(logicalX, logicalY, ui.terms.x, ui.terms.y, ui.terms.w, ui.terms.h)) {
-        tt.showModal({
-          title: 'Terms of Service',
-          content: 'By playing, you agree to terms by TANYA DAVID LLC for entertainment use.',
-          showCancel: false
-        });
-      }
-      return;
-    }
-    if (state === STATE.REVIVE) {
-      if (hitButton(logicalX, logicalY, ui.revive.x - REVIVE_HIT_PAD, ui.revive.y - REVIVE_HIT_PAD, ui.revive.w + REVIVE_HIT_PAD*2, ui.revive.h + REVIVE_HIT_PAD*2)) {
-        showReviveAd();
-      } else if (hitButton(logicalX, logicalY, ui.skipRevive.x - REVIVE_HIT_PAD, ui.skipRevive.y - REVIVE_HIT_PAD, ui.skipRevive.w + REVIVE_HIT_PAD*2, ui.skipRevive.h + REVIVE_HIT_PAD*2)) {
-        state = STATE.GAMEOVER;
-      }
-      return;
-    }
-    if (state === STATE.GAMEOVER) {
-      if (hitButton(logicalX, logicalY, ui.restart.x, ui.restart.y, ui.restart.w, ui.restart.h)) {
-        resetRun();
-        state = STATE.PLAYING;
-      }
-    }
-  }
-
-  function mapClientToLogical(clientX, clientY) {
-    var rect = canvas.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left) * (LOGICAL_W / (rect.width || LOGICAL_W)),
-      y: (clientY - rect.top) * (LOGICAL_H / (rect.height || LOGICAL_H))
-    };
-  }
-
-  canvas.addEventListener('touchstart', function (e) {
-    e.preventDefault();
-    var t = e.touches[0];
-    var p = mapClientToLogical(t.clientX, t.clientY);
-    handleTap(p.x, p.y);
-  }, { passive: false });
-
-  canvas.addEventListener('touchmove', function (e) {
-    e.preventDefault();
-    if (state !== STATE.PLAYING) return;
-    var t = e.touches[0];
-    var p = mapClientToLogical(t.clientX, t.clientY);
-    player.x = Math.max(player.r + 8, Math.min(LOGICAL_W - player.r - 8, p.x));
-  }, { passive: false });
-
-  function resetRun() {
-    score = 0; reviveUsed = false; entities = []; spawnTimer = 0; invuln = 0;
-    player.x = LOGICAL_W * 0.5;
-  }
-
-  function spawnEntity() {
-    var isCollect = Math.random() > 0.38;
-    entities.push({
-      x: 40 + Math.random() * (LOGICAL_W - 80),
-      y: -30,
-      r: isCollect ? 12 : 14,
-      vy: isCollect ? 160 : 130,
-      kind: isCollect ? 'orb' : 'spike'
+const sys = (typeof tt !== 'undefined') ? tt.getSystemInfoSync() : 
+    (typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { 
+        windowWidth: window.innerWidth, 
+        windowHeight: window.innerHeight, 
+        pixelRatio: window.devicePixelRatio || 1 
     });
-  }
 
-  function update(dt) {
-    if (pausedByHost || state !== STATE.PLAYING) return;
-    if (invuln > 0) invuln -= dt;
-    spawnTimer += dt;
-    if (spawnTimer > 0.55) { spawnTimer = 0; spawnEntity(); }
-    for (var i = entities.length - 1; i >= 0; i--) {
-      var e = entities[i];
-      e.y += e.vy * dt;
-      var dist = Math.sqrt(Math.pow(e.x - player.x, 2) + Math.pow(e.y - player.y, 2));
-      if (e.kind === 'orb' && dist < player.r + e.r) {
-        score += 10; entities.splice(i, 1);
-      } else if (e.kind === 'spike' && invuln <= 0 && dist < player.r + e.r * 0.8) {
-        state = reviveUsed ? STATE.GAMEOVER : STATE.REVIVE;
-      } else if (e.y > LOGICAL_H + 40) entities.splice(i, 1);
+const dpr = sys.pixelRatio || 1;
+
+// Fixed logical resolution (750x1334) to avoid rendering issues
+const LOGICAL_W = 750;
+const LOGICAL_H = 1334;
+
+let scaleX = 1, scaleY = 1;
+
+if (typeof tt !== 'undefined') {
+    canvas = tt.createCanvas();
+    ctx = canvas.getContext('2d');
+} else {
+    canvas = document.getElementById('gameCanvas');
+    ctx = canvas.getContext('2d');
+}
+
+function updateCanvasScale() {
+    const displayWidth = canvas.clientWidth || window.innerWidth;
+    const displayHeight = canvas.clientHeight || window.innerHeight;
+    if (displayWidth > 0 && displayHeight > 0) {
+        scaleX = LOGICAL_W / displayWidth;
+        scaleY = LOGICAL_H / displayHeight;
     }
-  }
-
-  function drawBackground() {
-    // 强制同步 DPR，防止渲染原因 2/3
+    canvas.width = LOGICAL_W * dpr;
+    canvas.height = LOGICAL_H * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = BG;
-    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
-  }
+}
 
-  function drawMenu() {
-    drawBackground();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    neonGlow(ctx, '#ff00aa', 20);
-    ctx.fillStyle = '#ffffff';
-    // 统一使用 Arial 避免字体渲染原因 2/3
-    ctx.font = '700 26px Arial, sans-serif'; 
-    ctx.fillText(GAME_TITLE, LOGICAL_W * 0.5, LOGICAL_H * 0.28);
-    clearGlow(ctx);
+window.addEventListener('resize', () => setTimeout(updateCanvasScale, 100));
+updateCanvasScale();
 
-    drawRoundedRect(ui.start.x, ui.start.y, ui.start.w, ui.start.h, 14, 'rgba(0,255,208,0.15)', '#00ffc8');
-    ctx.fillStyle = '#00ffc8';
-    ctx.font = '700 20px Arial, sans-serif';
-    ctx.fillText('START', ui.start.x + ui.start.w * 0.5, ui.start.y + ui.start.h * 0.5);
+// ==================== Game Config ====================
+const CONFIG = {
+    COLORS: { bg: '#0f0e17', player: '#25F4EE', spike: '#FE2C55', wall: '#333333', text: '#fffffe', combo: '#ffff00' },
+    WALL_WIDTH: 30,
+    GRAVITY: 0.42,
+    JUMP_FORCE: -7.2,
+    SPEED_X: 6.2
+};
 
-    // 绘制合规链接文字
-    ctx.font = '12px Arial, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('Privacy Policy', ui.privacy.x + ui.privacy.w/2, ui.privacy.y + 15);
-    ctx.fillText('Terms of Service', ui.terms.x + ui.terms.w/2, ui.terms.y + 15);
-  }
+// ==================== Game State ====================
+let state = {
+    mode: 'START',
+    score: 0,
+    combo: 0,
+    highScore: 0,
+    side: 1,
+    player: { x: 0, y: 0, r: 13, vy: 0 },
+    spikes: [],
+    shake: 0,
+    particles: [],
+    comboTimer: 0
+};
 
-  function drawWorld() {
-    drawBackground();
-    entities.forEach(function (e) {
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2);
-      ctx.fillStyle = e.kind === 'orb' ? '#00fff2' : '#ff2d6a';
-      ctx.fill();
+// ==================== UI Rectangles (Logical Coordinates) ====================
+const UI_RECTS = {
+    privacy:   { x: 20,                y: LOGICAL_H - 55, w: 110, h: 35 },
+    terms:     { x: LOGICAL_W - 130,   y: LOGICAL_H - 55, w: 110, h: 35 },
+    addShortcut: { x: LOGICAL_W/2 - 90, y: LOGICAL_H - 110, w: 180, h: 42 },
+    watchAd:   { x: LOGICAL_W/2 - 70,  y: LOGICAL_H - 165, w: 140, h: 42 }
+};
+
+// ==================== Helper Functions ====================
+function createBurst(x, y, color, count, speed, size) {
+    for (let i = 0; i < count; i++) {
+        state.particles.push({
+            x: x, y: y,
+            vx: (Math.random() - 0.5) * speed,
+            vy: (Math.random() - 0.5) * speed,
+            r: Math.random() * size,
+            alpha: 1,
+            color: color
+        });
+    }
+}
+
+function createSpikes() {
+    state.spikes = [];
+    const spikeSize = 20;
+    const count = Math.min(3 + Math.floor(state.score / 5), 9);
+    for (let i = 0; i < count; i++) {
+        state.spikes.push({
+            y: 120 + Math.random() * (LOGICAL_H - 240),
+            w: spikeSize,
+            h: spikeSize * 2.2
+        });
+    }
+}
+
+function resetGame() {
+    state.score = 0;
+    state.combo = 0;
+    state.side = 1;
+    state.player.x = LOGICAL_W / 2;
+    state.player.y = LOGICAL_H / 2;
+    state.player.vy = CONFIG.JUMP_FORCE * 1.2;
+    state.spikes = [];
+    state.particles = [];
+    state.shake = 0;
+    state.comboTimer = 0;
+    createSpikes();
+    startRecording();
+}
+
+function gameOver() {
+    state.mode = 'GAMEOVER';
+    if (state.score > state.highScore) state.highScore = state.score;
+    state.shake = 15;
+    createBurst(state.player.x, state.player.y, CONFIG.COLORS.spike, 30, 10, 8);
+    stopAndShareRecording();
+    // Show interstitial ad when game ends (natural break point)
+    showInterstitialAd();
+}
+
+// ==================== Core Game Logic ====================
+function update() {
+    if (state.mode !== 'PLAYING') return;
+
+    let speedMult = 1 + (state.combo * 0.012);
+    state.player.y += state.player.vy * speedMult;
+    state.player.vy += CONFIG.GRAVITY * speedMult;
+    state.player.x += (CONFIG.SPEED_X * speedMult) * state.side;
+
+    if (state.shake > 0) state.shake -= 0.6;
+    if (state.comboTimer > 0) state.comboTimer--;
+
+    for (let i = 0; i < state.particles.length; i++) {
+        let p = state.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.02;
+        if (p.alpha <= 0) {
+            state.particles.splice(i, 1);
+            i--;
+        }
+    }
+
+    const currentWall = state.side === 1 ? LOGICAL_W - CONFIG.WALL_WIDTH : CONFIG.WALL_WIDTH;
+    const isColliding = state.side === 1 ? (state.player.x + state.player.r >= currentWall) : (state.player.x - state.player.r <= currentWall);
+
+    if (isColliding) bounce();
+
+    if (state.player.y < 0 || state.player.y > LOGICAL_H) gameOver();
+
+    for (let s of state.spikes) {
+        const wallX = state.side === 1 ? LOGICAL_W - CONFIG.WALL_WIDTH : CONFIG.WALL_WIDTH;
+        if (Math.abs(state.player.y - s.y) < s.h/2 && Math.abs(state.player.x - wallX) < state.player.r + s.w) {
+            gameOver();
+            break;
+        }
+    }
+}
+
+function bounce() {
+    state.side *= -1;
+    state.score++;
+    state.combo++;
+    state.comboTimer = 40;
+    createSpikes();
+    state.shake = 5;
+    createBurst(state.player.x, state.player.y, CONFIG.COLORS.player, 12, 6, 4);
+    const safeX = state.side === 1 ? CONFIG.WALL_WIDTH + 2 + state.player.r : LOGICAL_W - CONFIG.WALL_WIDTH - 2 - state.player.r;
+    state.player.x = safeX;
+}
+
+// ==================== Screen Recording & Sharing ====================
+let recorderManager = null;
+let lastRecordedVideoPath = null;
+
+function initRecorder() {
+    if (typeof tt === 'undefined') return;
+    try {
+        recorderManager = tt.getGameRecorderManager();
+        recorderManager.onStart(() => console.log('Recording started'));
+        recorderManager.onStop((res) => {
+            console.log('Recording stopped', res);
+            if (res && res.videoPath) {
+                lastRecordedVideoPath = res.videoPath;
+            }
+        });
+        recorderManager.onError((err) => console.log('Recording error', err));
+    } catch(e) { console.log('Recorder init failed', e); }
+}
+
+function startRecording() {
+    if (typeof tt !== 'undefined' && recorderManager) {
+        try { recorderManager.start({ duration: 30 }); } catch(e) {}
+    }
+}
+
+function stopAndShareRecording() {
+    if (typeof tt !== 'undefined' && recorderManager) {
+        try { recorderManager.stop(); } catch(e) {}
+    }
+}
+
+function shareGame() {
+    if (typeof tt === 'undefined') {
+        alert('Please share inside TikTok');
+        return;
+    }
+    if (lastRecordedVideoPath) {
+        tt.shareAppMessage({
+            title: `I scored ${state.highScore} in Neon Bounce: Collector! Can you beat me?`,
+            imageUrl: '',
+            success: () => console.log('Share success'),
+            fail: (err) => console.log('Share failed', err)
+        });
+    } else {
+        tt.showModal({ title: 'No recording', content: 'Play a round first to record your gameplay', showCancel: false });
+    }
+}
+
+// ==================== Rewarded Video Ad (Incentive) ====================
+let rewardedVideoAd = null;
+let retryCount = 0;
+const MAX_RETRY = 3;
+
+function initRewardedVideo() {
+    if (typeof tt === 'undefined') return;
+    const AD_UNIT_ID = 'ad7624138143927715861'; // Your Rewarded Video Ad ID
+    try {
+        rewardedVideoAd = tt.createRewardedVideoAd({ adUnitId: AD_UNIT_ID });
+        if (!rewardedVideoAd) {
+            console.error('Rewarded ad creation failed: returned null');
+            return;
+        }
+        rewardedVideoAd.onLoad(() => {
+            console.log('Rewarded ad loaded');
+            retryCount = 0;
+        });
+        rewardedVideoAd.onError((err) => {
+            console.log('Rewarded ad error', err);
+            if (retryCount < MAX_RETRY) {
+                retryCount++;
+                setTimeout(() => rewardedVideoAd.load(), 2000);
+            }
+        });
+        rewardedVideoAd.onClose((res) => {
+            if (res && res.isEnded) {
+                giveAdReward();
+            } else {
+                if (typeof tt !== 'undefined') {
+                    tt.showModal({ title: 'Tip', content: 'Watch the full video to get the reward', showCancel: false });
+                }
+            }
+        });
+        rewardedVideoAd.load();
+    } catch(e) { console.log('Rewarded ad init error', e); }
+}
+
+function showRewardedVideo() {
+    if (typeof tt === 'undefined') {
+        giveAdReward(); // fallback for web testing
+        return;
+    }
+    if (!rewardedVideoAd) {
+        tt.showModal({ title: 'Ad not ready', content: 'Please try again later', showCancel: false });
+        return;
+    }
+    rewardedVideoAd.show().catch((err) => {
+        console.log('Rewarded ad show failed', err);
+        rewardedVideoAd.load();
+        tt.showModal({ title: 'Ad error', content: 'Unable to play ad now, please try again', showCancel: false });
     });
+}
+
+function giveAdReward() {
+    if (state.mode === 'GAMEOVER') {
+        // Revive
+        state.mode = 'PLAYING';
+        state.player.x = LOGICAL_W / 2;
+        state.player.y = LOGICAL_H / 2;
+        state.player.vy = CONFIG.JUMP_FORCE * 1.2;
+        state.shake = 10;
+        createBurst(state.player.x, state.player.y, '#25F4EE', 20, 8, 5);
+        if (typeof tt !== 'undefined') {
+            tt.showModal({ title: 'Revived!', content: 'Keep bouncing!', showCancel: false });
+        }
+    } else if (state.mode === 'PLAYING') {
+        // Bonus: +10 points and reset spikes
+        state.score += 10;
+        state.combo++;
+        state.comboTimer = 40;
+        createSpikes();
+        createBurst(state.player.x, state.player.y, '#ffff00', 15, 6, 4);
+        if (typeof tt !== 'undefined') {
+            tt.showModal({ title: 'Bonus!', content: '+10 points!', showCancel: false });
+        }
+    }
+}
+
+// ==================== Interstitial Ad ====================
+let interstitialAd = null;
+
+function initInterstitialAd() {
+    if (typeof tt === 'undefined') return;
+    const INTERSTITIAL_AD_UNIT_ID = 'ad7624701133264570389'; // Your Interstitial Ad ID
+    try {
+        interstitialAd = tt.createInterstitialAd({ adUnitId: INTERSTITIAL_AD_UNIT_ID });
+        if (!interstitialAd) {
+            console.error('Interstitial ad creation failed');
+            return;
+        }
+        interstitialAd.onLoad(() => {
+            console.log('Interstitial ad loaded');
+        });
+        interstitialAd.onError((err) => {
+            console.error('Interstitial ad error', err);
+            // Retry after 3 seconds if failed
+            setTimeout(() => interstitialAd.load(), 3000);
+        });
+        interstitialAd.onClose((res) => {
+            console.log('Interstitial ad closed', res);
+        });
+        interstitialAd.load(); // preload
+    } catch(e) {
+        console.log('Interstitial ad init error', e);
+    }
+}
+
+function showInterstitialAd() {
+    if (interstitialAd) {
+        interstitialAd.show().catch(err => {
+            console.log('Interstitial ad show failed (maybe not ready)', err);
+        });
+    } else {
+        console.log('Interstitial ad not initialized');
+    }
+}
+
+// ==================== Legal Pages (Absolute URLs) ====================
+function openPrivacyPolicy() {
+    const url = 'https://chunkit0625.github.io/NeonBounce.v2/privacy.html';
+    if (typeof tt !== 'undefined') {
+        tt.openSchema({ url: url, success: () => {}, fail: (err) => console.log(err) });
+    } else {
+        window.open(url, '_blank');
+    }
+}
+
+function openTermsOfService() {
+    const url = 'https://chunkit0625.github.io/NeonBounce.v2/terms.html';
+    if (typeof tt !== 'undefined') {
+        tt.openSchema({ url: url, success: () => {}, fail: (err) => console.log(err) });
+    } else {
+        window.open(url, '_blank');
+    }
+}
+
+// ==================== Add to Home Screen ====================
+function addToDesktop() {
+    if (typeof tt === 'undefined') {
+        alert('Please use this feature inside TikTok');
+        return;
+    }
+    tt.showModal({
+        title: 'Add to Home Screen',
+        content: 'Add a shortcut to your phone desktop for quick access.',
+        confirmText: 'Add',
+        cancelText: 'Later',
+        success(res) {
+            if (res.confirm) {
+                tt.addShortcut({
+                    success: () => {
+                        tt.showModal({ title: 'Success', content: 'Game added to your home screen!', showCancel: false });
+                    },
+                    fail: (err) => {
+                        console.log('Add shortcut failed', err);
+                        tt.showModal({ 
+                            title: 'How to add', 
+                            content: 'Tap "..." at top right corner and select "Add to Home Screen"',
+                            showCancel: false 
+                        });
+                    }
+                });
+            }
+        }
+    });
+}
+
+// ==================== Touch Handling ====================
+function getLogicalTouchPosition(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) {
+        return { x: clientX, y: clientY };
+    }
+    const logicalX = (clientX - rect.left) * (LOGICAL_W / rect.width);
+    const logicalY = (clientY - rect.top) * (LOGICAL_H / rect.height);
+    return {
+        x: Math.min(LOGICAL_W, Math.max(0, logicalX)),
+        y: Math.min(LOGICAL_H, Math.max(0, logicalY))
+    };
+}
+
+function hitRect(px, py, rect) {
+    return px >= rect.x && px <= rect.x + rect.w && py >= rect.y && py <= rect.y + rect.h;
+}
+
+function handleAction(e) {
+    e.preventDefault();
+    let clientX, clientY;
+    if (e.touches) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
+    const touch = getLogicalTouchPosition(clientX, clientY);
+    const tx = touch.x, ty = touch.y;
+
+    if (state.mode === 'START') {
+        if (hitRect(tx, ty, UI_RECTS.privacy)) { openPrivacyPolicy(); return; }
+        if (hitRect(tx, ty, UI_RECTS.terms)) { openTermsOfService(); return; }
+        if (hitRect(tx, ty, UI_RECTS.addShortcut)) { addToDesktop(); return; }
+        if (hitRect(tx, ty, UI_RECTS.watchAd)) { showRewardedVideo(); return; }
+        // Start game
+        state.mode = 'PLAYING';
+        startRecording();
+    } 
+    else if (state.mode === 'PLAYING') {
+        state.player.vy = CONFIG.JUMP_FORCE;
+        createBurst(state.player.x, state.player.y, '#fff', 2, 2, 2);
+    } 
+    else if (state.mode === 'GAMEOVER') {
+        const reviveBtn = { x: LOGICAL_W/2 - 100, y: LOGICAL_H/2 + 70, w: 200, h: 45 };
+        if (hitRect(tx, ty, reviveBtn)) {
+            showRewardedVideo();
+            return;
+        }
+        const shareBtn = { x: LOGICAL_W/2 + 20, y: LOGICAL_H/2 + 70, w: 80, h: 45 };
+        if (hitRect(tx, ty, shareBtn)) {
+            shareGame();
+            return;
+        }
+        resetGame();
+        state.mode = 'START';
+    }
+}
+
+if (typeof tt !== 'undefined') {
+    tt.onTouchStart(handleAction);
+} else {
+    canvas.addEventListener('touchstart', handleAction, { passive: false });
+    canvas.addEventListener('mousedown', handleAction);
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+// ==================== Drawing ====================
+function draw() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = CONFIG.COLORS.bg;
+    ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    ctx.fillStyle = CONFIG.COLORS.wall;
+    ctx.fillRect(0, 0, CONFIG.WALL_WIDTH, LOGICAL_H);
+    ctx.fillRect(LOGICAL_W - CONFIG.WALL_WIDTH, 0, CONFIG.WALL_WIDTH, LOGICAL_H);
+
+    if (state.shake > 0) {
+        ctx.save();
+        ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
+    }
+
+    for (let p of state.particles) {
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    ctx.fillStyle = CONFIG.COLORS.spike;
+    for (let s of state.spikes) {
+        const x = state.side === 1 ? LOGICAL_W - CONFIG.WALL_WIDTH : CONFIG.WALL_WIDTH;
+        ctx.beginPath();
+        if (state.side === 1) {
+            ctx.moveTo(x, s.y - s.h/2);
+            ctx.lineTo(x - s.w, s.y);
+            ctx.lineTo(x, s.y + s.h/2);
+        } else {
+            ctx.moveTo(x, s.y - s.h/2);
+            ctx.lineTo(x + s.w, s.y);
+            ctx.lineTo(x, s.y + s.h/2);
+        }
+        ctx.fill();
+    }
+
+    ctx.fillStyle = CONFIG.COLORS.player;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = CONFIG.COLORS.player;
     ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2);
-    ctx.strokeStyle = '#00ffd0';
-    ctx.lineWidth = 3;
-    ctx.stroke();
-  }
+    ctx.arc(state.player.x, state.player.y, state.player.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
-  function frame(now) {
-    var dt = Math.min(0.05, (now / 1000) - (frame.last || now / 1000));
-    frame.last = now / 1000;
-    update(dt);
-    if (state === STATE.MENU) drawMenu();
-    else if (state === STATE.PLAYING) drawWorld();
-    else if (state === STATE.REVIVE) { drawBackground(); /* ...简化绘制... */ }
-    else if (state === STATE.GAMEOVER) { drawBackground(); /* ...简化绘制... */ }
+    ctx.fillStyle = CONFIG.COLORS.text;
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 36px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+
+    if (state.mode === 'START') {
+        ctx.fillText('NEON BOUNCE', LOGICAL_W/2, LOGICAL_H/2 - 100);
+        ctx.font = '20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('Tap to Start', LOGICAL_W/2, LOGICAL_H/2 - 20);
+
+        ctx.font = '14px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = '#aaaaaa';
+        ctx.fillText('Privacy Policy', UI_RECTS.privacy.x + UI_RECTS.privacy.w/2, UI_RECTS.privacy.y + 22);
+        ctx.fillText('Terms of Use', UI_RECTS.terms.x + UI_RECTS.terms.w/2, UI_RECTS.terms.y + 22);
+
+        ctx.fillStyle = '#25F4EE';
+        ctx.fillRect(UI_RECTS.addShortcut.x, UI_RECTS.addShortcut.y, UI_RECTS.addShortcut.w, UI_RECTS.addShortcut.h);
+        ctx.fillStyle = '#0f0e17';
+        ctx.font = 'bold 16px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('📌 Add to Home', UI_RECTS.addShortcut.x + UI_RECTS.addShortcut.w/2, UI_RECTS.addShortcut.y + 27);
+
+        ctx.fillStyle = '#FE2C55';
+        ctx.fillRect(UI_RECTS.watchAd.x, UI_RECTS.watchAd.y, UI_RECTS.watchAd.w, UI_RECTS.watchAd.h);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('🎬 Free Revival', UI_RECTS.watchAd.x + UI_RECTS.watchAd.w/2, UI_RECTS.watchAd.y + 27);
+
+    } else if (state.mode === 'PLAYING') {
+        ctx.font = 'bold 70px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.globalAlpha = 0.2;
+        ctx.fillText(state.score, LOGICAL_W/2, LOGICAL_H/2);
+        ctx.globalAlpha = 1.0;
+        if (state.combo > 1 && state.comboTimer > 0) {
+            ctx.fillStyle = CONFIG.COLORS.combo;
+            ctx.font = 'bold 28px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+            ctx.fillText(`${state.combo}x STREAK`, LOGICAL_W/2, 100);
+        }
+    } else if (state.mode === 'GAMEOVER') {
+        ctx.font = 'bold 45px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = CONFIG.COLORS.spike;
+        ctx.fillText('GAME OVER', LOGICAL_W/2, LOGICAL_H/2 - 80);
+        ctx.font = '18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = CONFIG.COLORS.text;
+        ctx.fillText('Tap screen to restart', LOGICAL_W/2, LOGICAL_H/2 + 20);
+
+        ctx.fillStyle = '#25F4EE';
+        ctx.fillRect(LOGICAL_W/2 - 100, LOGICAL_H/2 + 70, 200, 45);
+        ctx.fillStyle = '#0f0e17';
+        ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('🎬 Watch Ad to Revive', LOGICAL_W/2, LOGICAL_H/2 + 97);
+
+        ctx.fillStyle = '#25F4EE';
+        ctx.fillRect(LOGICAL_W/2 + 20, LOGICAL_H/2 + 70, 80, 45);
+        ctx.fillStyle = '#0f0e17';
+        ctx.font = 'bold 14px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('Share', LOGICAL_W/2 + 60, LOGICAL_H/2 + 97);
+
+        ctx.font = '24px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = '#fffffe';
+        ctx.fillText('Score: ' + state.score, LOGICAL_W/2, LOGICAL_H/2 + 150);
+        ctx.fillText('Best: ' + state.highScore, LOGICAL_W/2, LOGICAL_H/2 + 190);
+    }
+
+    if (state.shake > 0) ctx.restore();
+}
+
+// ==================== Main Loop ====================
+function frame() {
+    update();
+    draw();
     requestAnimationFrame(frame);
-  }
+}
 
-  requestAnimationFrame(frame);
-  tt.onShow(function () { pausedByHost = false; });
-  tt.onHide(function () { pausedByHost = true; });
+function init() {
+    resetGame();
+    initRecorder();
+    initRewardedVideo();
+    initInterstitialAd();  // <-- integrated interstitial ad
+    frame();
+}
 
-})();
+init();
