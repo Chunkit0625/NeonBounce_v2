@@ -350,7 +350,7 @@ function showInterstitialAd() {
 
 // ==================== Legal Pages (Absolute URLs) ====================
 function openPrivacyPolicy() {
-    const url = 'https://chunkit0625.github.io/NeonBounce.v2/privacy.html';
+    const url = 'https://chunkit0625.github.io/NeonBounce_v2/privacy.html';
     if (typeof tt !== 'undefined') {
         tt.openSchema({ url: url, success: () => {}, fail: (err) => console.log(err) });
     } else {
@@ -359,7 +359,7 @@ function openPrivacyPolicy() {
 }
 
 function openTermsOfService() {
-    const url = 'https://chunkit0625.github.io/NeonBounce.v2/terms.html';
+    const url = 'https://chunkit0625.github.io/NeonBounce_v2/terms.html';
     if (typeof tt !== 'undefined') {
         tt.openSchema({ url: url, success: () => {}, fail: (err) => console.log(err) });
     } else {
@@ -590,7 +590,7 @@ function init() {
     resetGame();
     initRecorder();
     initRewardedVideo();
-    initInterstitialAd();  // <-- integrated interstitial ad
+    initInterstitialAd();  // integrated interstitial ad
     frame();
 }
 
