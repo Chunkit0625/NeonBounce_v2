@@ -1,24 +1,13 @@
 /**
  * Neon Bounce: Collector - TikTok Mini Game
- * Developed by: TANYA DAVID LLC
- * Fixed: window.addEventListener error in TikTok runtime
+ * Fixed: rendering issues & add to home screen guide
  */
 
-// ==================== Initialization ====================
-let canvas, ctx;
+// ==================== Environment Detection ====================
 const isTikTokEnv = typeof tt !== 'undefined';
 
-// 获取系统信息
-const sys = isTikTokEnv ? tt.getSystemInfoSync() : 
-    (typeof wx !== 'undefined' ? wx.getSystemInfoSync() : { 
-        windowWidth: window.innerWidth, 
-        windowHeight: window.innerHeight, 
-        pixelRatio: window.devicePixelRatio || 1 
-    });
-
-const dpr = sys.pixelRatio || 1;
-const LOGICAL_W = 750;
-const LOGICAL_H = 1334;
+// ==================== Canvas Setup ====================
+let canvas, ctx;
 
 if (isTikTokEnv) {
     canvas = tt.createCanvas();
@@ -28,17 +17,35 @@ if (isTikTokEnv) {
     ctx = canvas.getContext('2d');
 }
 
-function updateCanvasScale() {
-    canvas.width = LOGICAL_W * dpr;
-    canvas.height = LOGICAL_H * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+// Fixed logical resolution (750x1334)
+const LOGICAL_W = 750;
+const LOGICAL_H = 1334;
+
+// Get device pixel ratio
+let dpr = 1;
+let screenWidth = LOGICAL_W;
+let screenHeight = LOGICAL_H;
+
+if (isTikTokEnv) {
+    const sysInfo = tt.getSystemInfoSync();
+    dpr = sysInfo.pixelRatio || 1;
+    // Use screen dimensions for canvas size, but keep logical coordinates
+    screenWidth = sysInfo.windowWidth;
+    screenHeight = sysInfo.windowHeight;
+} else {
+    dpr = window.devicePixelRatio || 1;
+    screenWidth = window.innerWidth;
+    screenHeight = window.innerHeight;
 }
 
-// 只在非 TikTok 环境下监听窗口大小变化
-if (!isTikTokEnv) {
-    window.addEventListener('resize', () => setTimeout(updateCanvasScale, 100));
-}
-updateCanvasScale();
+// Set canvas actual size
+canvas.width = screenWidth * dpr;
+canvas.height = screenHeight * dpr;
+ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+// For touch coordinate conversion
+let scaleX = screenWidth / LOGICAL_W;
+let scaleY = screenHeight / LOGICAL_H;
 
 // ==================== Game Config ====================
 const CONFIG = {
@@ -343,29 +350,37 @@ function openTermsOfService() {
     }
 }
 
-// ==================== Add to Home Screen ====================
+// ==================== Add to Home Screen (Improved Guide) ====================
 function addToDesktop() {
     if (!isTikTokEnv) {
         alert('Please use this feature inside TikTok');
         return;
     }
+
+    // Step 1: Show informative guide
     tt.showModal({
         title: 'Add to Home Screen',
-        content: 'Add a shortcut to your phone desktop for quick access.',
-        confirmText: 'Add',
+        content: 'Add this game to your phone home screen for quick access and faster launch.',
+        confirmText: 'Continue',
         cancelText: 'Later',
         success(res) {
             if (res.confirm) {
+                // Step 2: Call API
                 tt.addShortcut({
                     success: () => {
-                        tt.showModal({ title: 'Success', content: 'Game added to your home screen!', showCancel: false });
+                        tt.showModal({
+                            title: 'Success!',
+                            content: 'Game shortcut has been added to your phone home screen. You can find it like a regular app.',
+                            showCancel: false
+                        });
                     },
                     fail: (err) => {
-                        console.log('Add shortcut failed', err);
-                        tt.showModal({ 
-                            title: 'How to add', 
-                            content: 'Tap "..." at top right corner and select "Add to Home Screen"',
-                            showCancel: false 
+                        console.log('addShortcut failed', err);
+                        // Step 3: Provide manual fallback guide
+                        tt.showModal({
+                            title: 'Manual Guide',
+                            content: '1. Tap "..." at top right corner\n2. Select "Add to Home Screen"\n3. Tap "Add" to confirm',
+                            showCancel: false
                         });
                     }
                 });
@@ -374,20 +389,29 @@ function addToDesktop() {
     });
 }
 
-// ==================== Touch Handling ====================
+// ==================== Touch Handling (Fixed Coordinate Conversion) ====================
 function getLogicalTouchPosition(clientX, clientY) {
     if (!isTikTokEnv) {
+        // For web preview: use canvas bounding rect
         const rect = canvas.getBoundingClientRect();
         if (rect && rect.width > 0) {
             const logicalX = (clientX - rect.left) * (LOGICAL_W / rect.width);
             const logicalY = (clientY - rect.top) * (LOGICAL_H / rect.height);
-            return { x: Math.min(LOGICAL_W, Math.max(0, logicalX)), y: Math.min(LOGICAL_H, Math.max(0, logicalY)) };
+            return {
+                x: Math.min(LOGICAL_W, Math.max(0, logicalX)),
+                y: Math.min(LOGICAL_H, Math.max(0, logicalY))
+            };
         }
     }
-    // TikTok 环境下，直接使用传入的坐标（需要转换？实际 tt.onTouchStart 会提供屏幕坐标，但我们可以简单处理）
-    // 为了简化，TikTok 环境下我们假设逻辑坐标与物理坐标比例一致，但更好的做法是使用 tt 提供的坐标转换
-    // 这里直接返回 clientX, clientY 并限制范围
-    return { x: Math.min(LOGICAL_W, Math.max(0, clientX)), y: Math.min(LOGICAL_H, Math.max(0, clientY)) };
+    // For TikTok: we assume the canvas covers the whole screen,
+    // but we need to map screen coordinates to logical coordinates.
+    // Since we set canvas size = screen size, we can map directly.
+    const logicalX = (clientX / screenWidth) * LOGICAL_W;
+    const logicalY = (clientY / screenHeight) * LOGICAL_H;
+    return {
+        x: Math.min(LOGICAL_W, Math.max(0, logicalX)),
+        y: Math.min(LOGICAL_H, Math.max(0, logicalY))
+    };
 }
 
 function hitRect(px, py, rect) {
@@ -413,6 +437,7 @@ function handleAction(e) {
         if (hitRect(tx, ty, UI_RECTS.terms)) { openTermsOfService(); return; }
         if (hitRect(tx, ty, UI_RECTS.addShortcut)) { addToDesktop(); return; }
         if (hitRect(tx, ty, UI_RECTS.watchAd)) { showRewardedVideo(); return; }
+        // Start game
         state.mode = 'PLAYING';
         startRecording();
     } 
@@ -436,7 +461,7 @@ function handleAction(e) {
     }
 }
 
-// 事件绑定：TikTok 环境下使用 tt.onTouchStart，浏览器环境下使用 canvas 事件
+// Bind events
 if (isTikTokEnv) {
     tt.onTouchStart(handleAction);
 } else {
