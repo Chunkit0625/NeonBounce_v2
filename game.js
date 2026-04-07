@@ -1,6 +1,6 @@
 /**
  * Neon Bounce: Collector - TikTok Mini Game
- * Fixed: "How to Add to Home" now shows custom toast; enlarged buttons; unified shake.
+ * Final: Buttons enlarged and centered; "How to Add" moved to middle; unified shake; custom toast.
  */
 
 // ==================== Initialization ====================
@@ -71,15 +71,18 @@ let state = {
     comboTimer: 0
 };
 
-// ==================== UI Rectangles (Enlarged) ====================
+// ==================== UI Rectangles (Enlarged, Centered) ====================
+// 底部栏：隐私政策、服务条款保持在底部两端
+// “How to Add to Home” 移至中间区域
+// “Free Revival” 保持靠下但向上移一点
 const UI_RECTS = {
     privacy:   { x: 20,                  y: LOGICAL_H - 70, w: 140, h: 45 },
     terms:     { x: LOGICAL_W - 160,     y: LOGICAL_H - 70, w: 140, h: 45 },
-    addGuide:  { x: LOGICAL_W/2 - 110,   y: LOGICAL_H - 130, w: 220, h: 50 },
-    watchAd:   { x: LOGICAL_W/2 - 90,    y: LOGICAL_H - 200, w: 180, h: 50 }
+    addGuide:  { x: LOGICAL_W/2 - 130,   y: LOGICAL_H - 280, w: 260, h: 60 },   // 向上移动，更居中
+    watchAd:   { x: LOGICAL_W/2 - 100,   y: LOGICAL_H - 360, w: 200, h: 60 }    // 也向上移动
 };
 
-// ==================== Custom Toast (no tt.showModal) ====================
+// ==================== Custom Toast (top position) ====================
 let toastMessage = null;
 let toastTimer = 0;
 
@@ -362,7 +365,6 @@ function addToDesktopGuide() {
         alert('Open this game in TikTok to add to home screen');
         return;
     }
-    // 显示自定义提示，不依赖 tt.showModal
     showToast('Tap "..." → Add to Home Screen', 3000);
 }
 
@@ -393,9 +395,6 @@ function handleAction(e) {
     const touch = getLogicalTouchPosition(clientX, clientY);
     const tx = touch.x, ty = touch.y;
 
-    // 调试日志（可移除）
-    // console.log(`Tap at (${tx.toFixed(1)}, ${ty.toFixed(1)})`);
-
     if (state.mode === 'START') {
         if (hitRect(tx, ty, UI_RECTS.privacy)) { openPrivacyPolicy(); return; }
         if (hitRect(tx, ty, UI_RECTS.terms)) { openTermsOfService(); return; }
@@ -409,8 +408,10 @@ function handleAction(e) {
         createBurst(state.player.x, state.player.y, '#fff', 2, 2, 2);
     } 
     else if (state.mode === 'GAMEOVER') {
-        const reviveBtn = { x: LOGICAL_W/2 - 120, y: LOGICAL_H/2 + 80, w: 240, h: 55 };
-        const shareBtn = { x: LOGICAL_W/2 + 30, y: LOGICAL_H/2 + 80, w: 100, h: 55 };
+        // 复活按钮居中放大
+        const reviveBtn = { x: LOGICAL_W/2 - 150, y: LOGICAL_H/2 + 60, w: 300, h: 65 };
+        // 分享按钮放在复活按钮右侧稍小一点
+        const shareBtn = { x: LOGICAL_W/2 + 100, y: LOGICAL_H/2 + 60, w: 110, h: 65 };
         if (hitRect(tx, ty, reviveBtn)) {
             showRewardedVideo();
             return;
@@ -433,14 +434,14 @@ if (isTikTokEnv) {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
-// ==================== Drawing (Unified Shake + Toast) ====================
+// ==================== Drawing (Unified Shake + Toast at top) ====================
 function draw() {
     ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
     
     ctx.fillStyle = CONFIG.COLORS.bg;
     ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
 
-    // 应用抖动（墙壁、尖刺、玩家、UI全部一起抖动）
+    // 应用抖动
     if (state.shake > 0) {
         ctx.save();
         ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
@@ -488,84 +489,86 @@ function draw() {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // 文字与UI（在抖动范围内）
+    // 文字与UI
     ctx.fillStyle = CONFIG.COLORS.text;
     ctx.textAlign = 'center';
 
     if (state.mode === 'START') {
-        ctx.font = 'bold 42px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('NEON BOUNCE', LOGICAL_W/2, LOGICAL_H/2 - 120);
-        ctx.font = '24px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('Tap to Start', LOGICAL_W/2, LOGICAL_H/2 - 30);
+        ctx.font = 'bold 46px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('NEON BOUNCE', LOGICAL_W/2, LOGICAL_H/2 - 150);
+        ctx.font = '26px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('Tap to Start', LOGICAL_W/2, LOGICAL_H/2 - 50);
 
-        ctx.font = '16px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = '18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#aaaaaa';
-        ctx.fillText('Privacy Policy', UI_RECTS.privacy.x + UI_RECTS.privacy.w/2, UI_RECTS.privacy.y + 28);
-        ctx.fillText('Terms of Use', UI_RECTS.terms.x + UI_RECTS.terms.w/2, UI_RECTS.terms.y + 28);
+        ctx.fillText('Privacy Policy', UI_RECTS.privacy.x + UI_RECTS.privacy.w/2, UI_RECTS.privacy.y + 30);
+        ctx.fillText('Terms of Use', UI_RECTS.terms.x + UI_RECTS.terms.w/2, UI_RECTS.terms.y + 30);
 
         ctx.fillStyle = '#25F4EE';
         ctx.fillRect(UI_RECTS.addGuide.x, UI_RECTS.addGuide.y, UI_RECTS.addGuide.w, UI_RECTS.addGuide.h);
         ctx.fillStyle = '#0f0e17';
-        ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('📌 How to Add to Home', UI_RECTS.addGuide.x + UI_RECTS.addGuide.w/2, UI_RECTS.addGuide.y + 32);
+        ctx.font = 'bold 20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('📌 How to Add to Home', UI_RECTS.addGuide.x + UI_RECTS.addGuide.w/2, UI_RECTS.addGuide.y + 38);
 
         ctx.fillStyle = '#FE2C55';
         ctx.fillRect(UI_RECTS.watchAd.x, UI_RECTS.watchAd.y, UI_RECTS.watchAd.w, UI_RECTS.watchAd.h);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('▶ Free Revival', UI_RECTS.watchAd.x + UI_RECTS.watchAd.w/2, UI_RECTS.watchAd.y + 32);
+        ctx.font = 'bold 20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('▶ Free Revival', UI_RECTS.watchAd.x + UI_RECTS.watchAd.w/2, UI_RECTS.watchAd.y + 38);
     } 
     else if (state.mode === 'PLAYING') {
-        ctx.font = 'bold 80px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = 'bold 90px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.globalAlpha = 0.2;
         ctx.fillText(state.score, LOGICAL_W/2, LOGICAL_H/2);
         ctx.globalAlpha = 1.0;
         if (state.combo > 1 && state.comboTimer > 0) {
             ctx.fillStyle = CONFIG.COLORS.combo;
-            ctx.font = 'bold 32px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-            ctx.fillText(`${state.combo}x STREAK`, LOGICAL_W/2, 100);
+            ctx.font = 'bold 36px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+            ctx.fillText(`${state.combo}x STREAK`, LOGICAL_W/2, 110);
         }
     } 
     else if (state.mode === 'GAMEOVER') {
-        ctx.font = 'bold 52px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = 'bold 56px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = CONFIG.COLORS.spike;
-        ctx.fillText('GAME OVER', LOGICAL_W/2, LOGICAL_H/2 - 100);
-        ctx.font = '22px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('GAME OVER', LOGICAL_W/2, LOGICAL_H/2 - 120);
+        ctx.font = '24px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = CONFIG.COLORS.text;
-        ctx.fillText('Tap screen to restart', LOGICAL_W/2, LOGICAL_H/2 + 10);
+        ctx.fillText('Tap screen to restart', LOGICAL_W/2, LOGICAL_H/2 - 20);
 
+        // 复活按钮 (居中放大)
         ctx.fillStyle = '#25F4EE';
-        ctx.fillRect(LOGICAL_W/2 - 120, LOGICAL_H/2 + 80, 240, 55);
+        ctx.fillRect(LOGICAL_W/2 - 150, LOGICAL_H/2 + 60, 300, 65);
+        ctx.fillStyle = '#0f0e17';
+        ctx.font = 'bold 22px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('▶ Watch Ad to Revive', LOGICAL_W/2, LOGICAL_H/2 + 100);
+
+        // 分享按钮 (右侧)
+        ctx.fillStyle = '#25F4EE';
+        ctx.fillRect(LOGICAL_W/2 + 100, LOGICAL_H/2 + 60, 110, 65);
         ctx.fillStyle = '#0f0e17';
         ctx.font = 'bold 20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('▶ Watch Ad to Revive', LOGICAL_W/2, LOGICAL_H/2 + 115);
+        ctx.fillText('Share', LOGICAL_W/2 + 155, LOGICAL_H/2 + 100);
 
-        ctx.fillStyle = '#25F4EE';
-        ctx.fillRect(LOGICAL_W/2 + 30, LOGICAL_H/2 + 80, 100, 55);
-        ctx.fillStyle = '#0f0e17';
-        ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('Share', LOGICAL_W/2 + 80, LOGICAL_H/2 + 115);
-
-        ctx.font = '28px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = '30px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#fffffe';
-        ctx.fillText('Score: ' + state.score, LOGICAL_W/2, LOGICAL_H/2 + 170);
-        ctx.fillText('Best: ' + state.highScore, LOGICAL_W/2, LOGICAL_H/2 + 220);
+        ctx.fillText('Score: ' + state.score, LOGICAL_W/2, LOGICAL_H/2 + 180);
+        ctx.fillText('Best: ' + state.highScore, LOGICAL_W/2, LOGICAL_H/2 + 230);
     }
 
-    // 绘制自定义 Toast 提示框
+    // 绘制 Toast (顶部居中)
     if (toastMessage && toastTimer > 0) {
         ctx.save();
-        ctx.globalAlpha = 0.85;
+        ctx.globalAlpha = 0.9;
         ctx.fillStyle = '#000000';
         ctx.shadowBlur = 0;
-        const tw = 460, th = 56;
+        const tw = 500, th = 60;
         const tx = LOGICAL_W/2 - tw/2;
-        const ty = LOGICAL_H - 100;
+        const ty = 80;
         ctx.fillRect(tx, ty, tw, th);
         ctx.fillStyle = '#ffffff';
-        ctx.font = '18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = '20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(toastMessage, LOGICAL_W/2, ty + 36);
+        ctx.fillText(toastMessage, LOGICAL_W/2, ty + 38);
         ctx.restore();
         toastTimer -= 16;
         if (toastTimer <= 0) toastMessage = null;
