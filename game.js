@@ -1,24 +1,20 @@
 /**
  * Neon Bounce: Collector - TikTok Mini Game
- * Fixed: Full adaptive scaling for any screen size, no clipping, accurate touch mapping.
+ * Fixed: enlarged UI buttons, replaced unreliable "Add to Home" with guide button.
  */
 
 // ==================== Initialization ====================
 let canvas, ctx;
 const isTikTokEnv = typeof tt !== 'undefined';
 
-// 逻辑分辨率固定
 const LOGICAL_W = 750;
 const LOGICAL_H = 1334;
 
-// 物理屏幕尺寸
 let screenWidth = 0, screenHeight = 0;
-// 缩放因子和偏移量
 let scale = 1, offsetX = 0, offsetY = 0;
 
 function updateCanvasScale() {
     if (!canvas) return;
-    // 获取实际屏幕宽高
     if (isTikTokEnv) {
         const sys = tt.getSystemInfoSync();
         screenWidth = sys.windowWidth;
@@ -27,29 +23,23 @@ function updateCanvasScale() {
         screenWidth = window.innerWidth;
         screenHeight = window.innerHeight;
     }
-    // 设置 canvas 物理尺寸为屏幕尺寸（像素）
     canvas.width = screenWidth;
     canvas.height = screenHeight;
     
-    // 计算缩放比例（保持逻辑比例，完整显示）
     const scaleX = screenWidth / LOGICAL_W;
     const scaleY = screenHeight / LOGICAL_H;
-    scale = Math.min(scaleX, scaleY);  // 取较小值，保证全部内容可见
-    // 计算偏移，使内容居中
+    scale = Math.min(scaleX, scaleY);
     offsetX = (screenWidth - LOGICAL_W * scale) / 2;
     offsetY = (screenHeight - LOGICAL_H * scale) / 2;
     
-    // 设置绘图变换：先平移，再缩放
     ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
 }
 
 if (isTikTokEnv) {
     canvas = tt.createCanvas();
     ctx = canvas.getContext('2d');
-    // TikTok 环境下，屏幕尺寸在初始化时已可获取
     updateCanvasScale();
-    // 监听窗口变化（TikTok 可能不支持，但保留）
-    tt.onWindowResize && tt.onWindowResize(() => setTimeout(updateCanvasScale, 100));
+    if (tt.onWindowResize) tt.onWindowResize(() => setTimeout(updateCanvasScale, 100));
 } else {
     canvas = document.getElementById('gameCanvas');
     ctx = canvas.getContext('2d');
@@ -81,12 +71,12 @@ let state = {
     comboTimer: 0
 };
 
-// ==================== UI Rectangles (Logical Coordinates) ====================
+// ==================== UI Rectangles (Enlarged) ====================
 const UI_RECTS = {
-    privacy:   { x: 20,                y: LOGICAL_H - 55, w: 110, h: 35 },
-    terms:     { x: LOGICAL_W - 130,   y: LOGICAL_H - 55, w: 110, h: 35 },
-    addShortcut: { x: LOGICAL_W/2 - 90, y: LOGICAL_H - 110, w: 180, h: 42 },
-    watchAd:   { x: LOGICAL_W/2 - 70,  y: LOGICAL_H - 165, w: 140, h: 42 }
+    privacy:   { x: 20,                  y: LOGICAL_H - 70, w: 140, h: 45 },
+    terms:     { x: LOGICAL_W - 160,     y: LOGICAL_H - 70, w: 140, h: 45 },
+    addGuide:  { x: LOGICAL_W/2 - 110,   y: LOGICAL_H - 130, w: 220, h: 50 },
+    watchAd:   { x: LOGICAL_W/2 - 90,    y: LOGICAL_H - 200, w: 180, h: 50 }
 };
 
 // ==================== Helper Functions ====================
@@ -361,38 +351,28 @@ function openTermsOfService() {
     }
 }
 
-// ==================== Add to Home Screen ====================
-function showAddShortcutGuide() {
+// ==================== Add to Home Screen (Guide only) ====================
+function showAddToHomeGuide() {
     tt.showModal({
         title: 'Add to Home Screen',
-        content: '1. Tap "..." at top-right corner\n2. Scroll down and select "Add to Home Screen"\n3. Tap "Add"',
+        content: '1️⃣ Tap "..." at top-right corner\n2️⃣ Scroll down and select "Add to Home Screen"\n3️⃣ Tap "Add" to install',
         confirmText: 'Got it',
         showCancel: false
     });
 }
 
-function addToDesktop() {
+function addToDesktopGuide() {
     if (!isTikTokEnv) {
-        alert('Please use this feature inside TikTok');
+        alert('Open this game in TikTok browser to add to home screen');
         return;
     }
-    tt.addShortcut({
-        success: () => {
-            tt.showModal({ title: 'Success', content: 'Game added to your home screen!', showCancel: false });
-        },
-        fail: (err) => {
-            console.error('addShortcut failed', err);
-            showAddShortcutGuide();
-        }
-    });
+    showAddToHomeGuide();
 }
 
 // ==================== Touch Handling with Coordinate Mapping ====================
 function getLogicalTouchPosition(clientX, clientY) {
-    // 将物理屏幕坐标转换为逻辑坐标 (基于当前的缩放和偏移)
     let logicalX = (clientX - offsetX) / scale;
     let logicalY = (clientY - offsetY) / scale;
-    // 钳位到逻辑范围内
     logicalX = Math.min(LOGICAL_W, Math.max(0, logicalX));
     logicalY = Math.min(LOGICAL_H, Math.max(0, logicalY));
     return { x: logicalX, y: logicalY };
@@ -419,7 +399,7 @@ function handleAction(e) {
     if (state.mode === 'START') {
         if (hitRect(tx, ty, UI_RECTS.privacy)) { openPrivacyPolicy(); return; }
         if (hitRect(tx, ty, UI_RECTS.terms)) { openTermsOfService(); return; }
-        if (hitRect(tx, ty, UI_RECTS.addShortcut)) { addToDesktop(); return; }
+        if (hitRect(tx, ty, UI_RECTS.addGuide)) { addToDesktopGuide(); return; }
         if (hitRect(tx, ty, UI_RECTS.watchAd)) { showRewardedVideo(); return; }
         state.mode = 'PLAYING';
         startRecording();
@@ -429,8 +409,8 @@ function handleAction(e) {
         createBurst(state.player.x, state.player.y, '#fff', 2, 2, 2);
     } 
     else if (state.mode === 'GAMEOVER') {
-        const reviveBtn = { x: LOGICAL_W/2 - 100, y: LOGICAL_H/2 + 70, w: 200, h: 45 };
-        const shareBtn = { x: LOGICAL_W/2 + 20, y: LOGICAL_H/2 + 70, w: 80, h: 45 };
+        const reviveBtn = { x: LOGICAL_W/2 - 120, y: LOGICAL_H/2 + 80, w: 240, h: 55 };
+        const shareBtn = { x: LOGICAL_W/2 + 30, y: LOGICAL_H/2 + 80, w: 100, h: 55 };
         if (hitRect(tx, ty, reviveBtn)) {
             showRewardedVideo();
             return;
@@ -453,25 +433,23 @@ if (isTikTokEnv) {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
-// ==================== Drawing (All within transformed context) ====================
+// ==================== Drawing (All within transformed context, unified shake) ====================
 function draw() {
-    // 每次绘制前重新设置变换（防止被其他操作覆盖）
     ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
     
-    // 清空背景（覆盖整个逻辑区域）
     ctx.fillStyle = CONFIG.COLORS.bg;
     ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+
+    // 应用抖动（墙壁、尖刺、玩家、UI全部一起抖动）
+    if (state.shake > 0) {
+        ctx.save();
+        ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
+    }
 
     // 墙壁
     ctx.fillStyle = CONFIG.COLORS.wall;
     ctx.fillRect(0, 0, CONFIG.WALL_WIDTH, LOGICAL_H);
     ctx.fillRect(LOGICAL_W - CONFIG.WALL_WIDTH, 0, CONFIG.WALL_WIDTH, LOGICAL_H);
-
-    // 应用屏幕抖动（所有后续元素都会抖动）
-    if (state.shake > 0) {
-        ctx.save();
-        ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
-    }
 
     // 粒子
     for (let p of state.particles) {
@@ -510,67 +488,68 @@ function draw() {
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // 文字与UI
+    // 文字与UI（在抖动范围内）
     ctx.fillStyle = CONFIG.COLORS.text;
     ctx.textAlign = 'center';
 
     if (state.mode === 'START') {
-        ctx.font = 'bold 36px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('NEON BOUNCE', LOGICAL_W/2, LOGICAL_H/2 - 100);
-        ctx.font = '20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('Tap to Start', LOGICAL_W/2, LOGICAL_H/2 - 20);
+        ctx.font = 'bold 42px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('NEON BOUNCE', LOGICAL_W/2, LOGICAL_H/2 - 120);
+        ctx.font = '24px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('Tap to Start', LOGICAL_W/2, LOGICAL_H/2 - 30);
 
-        ctx.font = '14px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = '16px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#aaaaaa';
-        ctx.fillText('Privacy Policy', UI_RECTS.privacy.x + UI_RECTS.privacy.w/2, UI_RECTS.privacy.y + 22);
-        ctx.fillText('Terms of Use', UI_RECTS.terms.x + UI_RECTS.terms.w/2, UI_RECTS.terms.y + 22);
+        ctx.fillText('Privacy Policy', UI_RECTS.privacy.x + UI_RECTS.privacy.w/2, UI_RECTS.privacy.y + 28);
+        ctx.fillText('Terms of Use', UI_RECTS.terms.x + UI_RECTS.terms.w/2, UI_RECTS.terms.y + 28);
 
         ctx.fillStyle = '#25F4EE';
-        ctx.fillRect(UI_RECTS.addShortcut.x, UI_RECTS.addShortcut.y, UI_RECTS.addShortcut.w, UI_RECTS.addShortcut.h);
+        ctx.fillRect(UI_RECTS.addGuide.x, UI_RECTS.addGuide.y, UI_RECTS.addGuide.w, UI_RECTS.addGuide.h);
         ctx.fillStyle = '#0f0e17';
-        ctx.font = 'bold 16px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('📌 Add to Home', UI_RECTS.addShortcut.x + UI_RECTS.addShortcut.w/2, UI_RECTS.addShortcut.y + 27);
+        ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('📌 How to Add to Home', UI_RECTS.addGuide.x + UI_RECTS.addGuide.w/2, UI_RECTS.addGuide.y + 32);
 
         ctx.fillStyle = '#FE2C55';
         ctx.fillRect(UI_RECTS.watchAd.x, UI_RECTS.watchAd.y, UI_RECTS.watchAd.w, UI_RECTS.watchAd.h);
         ctx.fillStyle = '#ffffff';
-        ctx.fillText('▶ Free Revival', UI_RECTS.watchAd.x + UI_RECTS.watchAd.w/2, UI_RECTS.watchAd.y + 27);
+        ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('▶ Free Revival', UI_RECTS.watchAd.x + UI_RECTS.watchAd.w/2, UI_RECTS.watchAd.y + 32);
     } 
     else if (state.mode === 'PLAYING') {
-        ctx.font = 'bold 70px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = 'bold 80px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.globalAlpha = 0.2;
         ctx.fillText(state.score, LOGICAL_W/2, LOGICAL_H/2);
         ctx.globalAlpha = 1.0;
         if (state.combo > 1 && state.comboTimer > 0) {
             ctx.fillStyle = CONFIG.COLORS.combo;
-            ctx.font = 'bold 28px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+            ctx.font = 'bold 32px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
             ctx.fillText(`${state.combo}x STREAK`, LOGICAL_W/2, 100);
         }
     } 
     else if (state.mode === 'GAMEOVER') {
-        ctx.font = 'bold 45px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = 'bold 52px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = CONFIG.COLORS.spike;
-        ctx.fillText('GAME OVER', LOGICAL_W/2, LOGICAL_H/2 - 80);
-        ctx.font = '18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('GAME OVER', LOGICAL_W/2, LOGICAL_H/2 - 100);
+        ctx.font = '22px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = CONFIG.COLORS.text;
-        ctx.fillText('Tap screen to restart', LOGICAL_W/2, LOGICAL_H/2 + 20);
+        ctx.fillText('Tap screen to restart', LOGICAL_W/2, LOGICAL_H/2 + 10);
 
         ctx.fillStyle = '#25F4EE';
-        ctx.fillRect(LOGICAL_W/2 - 100, LOGICAL_H/2 + 70, 200, 45);
+        ctx.fillRect(LOGICAL_W/2 - 120, LOGICAL_H/2 + 80, 240, 55);
+        ctx.fillStyle = '#0f0e17';
+        ctx.font = 'bold 20px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillText('▶ Watch Ad to Revive', LOGICAL_W/2, LOGICAL_H/2 + 115);
+
+        ctx.fillStyle = '#25F4EE';
+        ctx.fillRect(LOGICAL_W/2 + 30, LOGICAL_H/2 + 80, 100, 55);
         ctx.fillStyle = '#0f0e17';
         ctx.font = 'bold 18px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('▶ Watch Ad to Revive', LOGICAL_W/2, LOGICAL_H/2 + 97);
+        ctx.fillText('Share', LOGICAL_W/2 + 80, LOGICAL_H/2 + 115);
 
-        ctx.fillStyle = '#25F4EE';
-        ctx.fillRect(LOGICAL_W/2 + 20, LOGICAL_H/2 + 70, 80, 45);
-        ctx.fillStyle = '#0f0e17';
-        ctx.font = 'bold 14px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
-        ctx.fillText('Share', LOGICAL_W/2 + 60, LOGICAL_H/2 + 97);
-
-        ctx.font = '24px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.font = '28px "Arial", "PingFang SC", "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#fffffe';
-        ctx.fillText('Score: ' + state.score, LOGICAL_W/2, LOGICAL_H/2 + 150);
-        ctx.fillText('Best: ' + state.highScore, LOGICAL_W/2, LOGICAL_H/2 + 190);
+        ctx.fillText('Score: ' + state.score, LOGICAL_W/2, LOGICAL_H/2 + 170);
+        ctx.fillText('Best: ' + state.highScore, LOGICAL_W/2, LOGICAL_H/2 + 220);
     }
 
     if (state.shake > 0) ctx.restore();
